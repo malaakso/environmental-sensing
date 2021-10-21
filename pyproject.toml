@@ -1,0 +1,17 @@
+[tool.poetry]
+name = "environmental-sensing"
+version = "0.1.0"
+description = ""
+authors = ["Matti Laakso <matti.laakso@outlook.com>"]
+
+[tool.poetry.dependencies]
+python = "^3.8"
+bleak = "^0.12.1"
+asyncio-mqtt = "^0.10.0"
+
+[tool.poetry.dev-dependencies]
+pytest = "^5.2"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
