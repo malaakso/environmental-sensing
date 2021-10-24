@@ -15,9 +15,8 @@ class MqttClient:
         await self.client.connect()
 
     async def run(self):
-        print("Connecting to broker...", end="")
         await self.connect()
-        print("Connected")
+        print("Connected to broker")
         while True:
             # Use await asyncio.wait_for(queue.get(), timeout=1.0) if you want a timeout for getting data.
             timestamp, address, key, value = await self.queue.get()

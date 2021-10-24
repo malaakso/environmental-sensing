@@ -16,8 +16,6 @@ async def main(bt_address: str, mqtt_address: str):
 
     try:
         await asyncio.gather(mqtt_task, sensor_task)
-    except KeyboardInterrupt:
-        print("Caught signal, exiting")
     except Exception as e:
         print("Fatal error: ", end="")
         print(e)
@@ -27,5 +25,5 @@ async def main(bt_address: str, mqtt_address: str):
 if __name__ == "__main__":
     try:
         asyncio.run(main(BT_ADDRESS,MQTT_ADDRESS))
-    except asyncio.CancelledError:
-        pass
+    except KeyboardInterrupt:
+        print("Caught signal, exiting")

@@ -2,7 +2,7 @@ import asyncio
 import datetime
 import struct
 
-from bleak import BleakClient
+from bleak import BleakClient, BleakScanner
 from bleak.uuids import uuid16_dict
 
 class EnvironmentalSensor:
@@ -57,27 +57,20 @@ class EnvironmentalSensor:
     }
 
     def __init__(self, address, secret, queue):
-        self.descriptions = {}
+        
         self.address = address
-        self.client = BleakClient(address, disconnected_callback=self.handle_disconnect)
         self.secret = secret
         self.queue = queue
+
         self.disconnected_event = asyncio.Event()
         self.disconnected_event.set()
 
-    async def disconnect(self):
-        await self.client.disconnect()
-
-    async def connect(self):
-        print("Connecting to device...", end="")
-        await self.client.connect()
-        print("Connected")
-        services = await self.client.get_services()
-        ess_service = services.get_service(EnvironmentalSensor._ENV_SENSING_SERVICE_UUID)
-        self.characteristics = ess_service.characteristics
+        self.client = None
+        self.characteristics = {}
+        self.descriptions = {}
 
     def handle_disconnect(self, _):
-        print("Disconnected")
+        print(f"Disconnected from {self.address}")
         self.disconnected_event.set()
 
     def notification_handler(self, sender, data):
@@ -91,38 +84,52 @@ class EnvironmentalSensor:
         except KeyError:
             self.queue.put_nowait((datetime.datetime.now(datetime.timezone.utc), self.address, f"{measurement}_{application}", None))
 
-    async def subscribe(self):
+    async def _subscribe(self):
+        if not self.characteristics:
+            services = await self.client.get_services()
+            ess_service = services.get_service(EnvironmentalSensor._ENV_SENSING_SERVICE_UUID)
+            self.characteristics = ess_service.characteristics
+        if not self.descriptions:
+            for c in self.characteristics:
+                d = c.get_descriptor(EnvironmentalSensor._ENV_SENSING_MEASUREMENT_DESCRIPTOR_UUID)
+                data = await self.client.read_gatt_descriptor(d.handle)
+                app_id = struct.unpack("<H9B", data)[8]
+                try:
+                    application = EnvironmentalSensor._applications[app_id]
+                except KeyError:
+                    application = app_id
+                self.descriptions[c.handle] = (c.description, application)
         for c in self.characteristics:
             await self.client.start_notify(c, self.notification_handler)
-            d = c.get_descriptor(EnvironmentalSensor._ENV_SENSING_MEASUREMENT_DESCRIPTOR_UUID)
-            data = await self.client.read_gatt_descriptor(d.handle)
-            app_id = struct.unpack("<H9B", data)[8]
-            try:
-                application = EnvironmentalSensor._applications[app_id]
-            except KeyError:
-                application = app_id
-            self.descriptions[c.handle] = (c.description, application)
 
     async def run(self):
         while True:
             await self.disconnected_event.wait()
-            try:
-                await self.connect()
-                self.disconnected_event.clear()
-            except Exception as e:
-                print("Failed to connect: ", end="")
-                print(e)
-                continue
-            try:
-                await self.subscribe()
-            except Exception as e:
-                print("Failed to subscribe: ", end="")
-                print(e)
+            device = await BleakScanner.find_device_by_address(self.address, timeout=30)
+            if device:
+                self.client = BleakClient(device, disconnected_callback=self.handle_disconnect)
+                try:
+                    await self.client.connect()
+                    self.disconnected_event.clear()
+                    print(f"Connected to {self.address}")
+                except Exception as e:
+                    print("Failed to connect: ", end="")
+                    print(e)
+                    continue
+                try:
+                    await self._subscribe()
+                except Exception as e:
+                    print("Failed to subscribe: ", end="")
+                    print(e)
+            else:
+                print(f"Device {self.address} could not be found")
 
     async def set_fan_speed(self, speed):
-        speed_data = self.secret + speed
-        await self.client.write_gatt_char(EnvironmentalSensor._RELAY_CHAR_UUID, speed_data)
+        if self.client:
+            speed_data = self.secret + speed
+            await self.client.write_gatt_char(EnvironmentalSensor._RELAY_CHAR_UUID, speed_data)
 
     async def set_fan_manual(self):
-        await self.client.write_gatt_char(EnvironmentalSensor._RELAY_CHAR_UUID, 0)
+        if self.client:
+            await self.client.write_gatt_char(EnvironmentalSensor._RELAY_CHAR_UUID, 0)
         
